@@ -31,8 +31,11 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     @IBOutlet weak var photoCancelButton: UIButton!
     @IBOutlet weak var cameraButton: UIButton!
     
-    var croppedImageView = UIImageView()
-    var cropImageRect = CGRect()
+    fileprivate var referenceFrameImageView = UIImageView() // Reference before taking picture
+    var croppedImageView = UIImageView() //For the preview
+    var cropImageRect: CGRect {
+        return referenceFrameImageView.frame
+    }
     var cropImageRectCorner = UIRectCorner()
     
     var captureSession: AVCaptureSession!
@@ -79,14 +82,19 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     
     func setupCameraPreview() {
         
-        let imageView = setupGuideLineArea()
+        referenceFrameImageView = setupGuideLineArea()
+        referenceFrameImageView.translatesAutoresizingMaskIntoConstraints = false
+        referenceFrameImageView.heightAnchor.constraint(equalToConstant: 200).isActive = true
+        referenceFrameImageView.widthAnchor.constraint(equalToConstant: 300).isActive = true
+        
         videoPreviewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
         videoPreviewLayer.videoGravity = .resizeAspectFill
         videoPreviewLayer.connection?.videoOrientation = .portrait
         previewView.layer.addSublayer(videoPreviewLayer)
-        previewView.addSubview(imageView)
-        cropImageRect = imageView.frame
-        
+        previewView.addSubview(referenceFrameImageView)
+        referenceFrameImageView.centerYAnchor.constraint(equalTo: previewView.centerYAnchor).isActive = true
+        referenceFrameImageView.centerXAnchor.constraint(equalTo: previewView.centerXAnchor).isActive = true
+            
         DispatchQueue.global(qos: .userInitiated).async {
             self.captureSession.startRunning()
             DispatchQueue.main.async {
@@ -95,17 +103,39 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         }
     }
     
+    func setRotation() {
+        let deviceOrientation = UIDevice.current.orientation
+        
+        let photoOutputConnection = stillImageOutput.connection(with:AVMediaType.video)
+            
+    
+        switch deviceOrientation {
+        case .landscapeLeft:
+            videoPreviewLayer?.connection?.videoOrientation = AVCaptureVideoOrientation.landscapeRight
+            photoOutputConnection?.videoOrientation = AVCaptureVideoOrientation.landscapeRight
+            break
+        case .landscapeRight:
+            videoPreviewLayer?.connection?.videoOrientation = AVCaptureVideoOrientation.landscapeLeft
+            photoOutputConnection?.videoOrientation = AVCaptureVideoOrientation.landscapeLeft
+            break
+        case .portrait:
+            videoPreviewLayer?.connection?.videoOrientation = AVCaptureVideoOrientation.portrait
+            photoOutputConnection?.videoOrientation = AVCaptureVideoOrientation.portrait
+            break
+        case .portraitUpsideDown:
+            videoPreviewLayer?.connection?.videoOrientation = AVCaptureVideoOrientation.portraitUpsideDown
+            photoOutputConnection?.videoOrientation = AVCaptureVideoOrientation.portraitUpsideDown
+            break
+        default:
+            break
+        }
+    }
+    
     func setupGuideLineArea() -> UIImageView {
-        
         let edgeInsets:UIEdgeInsets = UIEdgeInsets.init(top: 22, left: 22, bottom: 22, right: 22)
-        
         let resizableImage = (UIImage(named: "guideImage")?.resizableImage(withCapInsets: edgeInsets, resizingMode: .stretch))!
-        let imageSize = CGSize(width: previewView.frame.size.width-50, height: 200)
         cropImageRectCorner = [.allCorners]
-        
         let imageView = UIImageView(image: resizableImage)
-        imageView.frame.size = imageSize
-        imageView.center = CGPoint(x: previewView.bounds.midX, y: previewView.bounds.midY);
         return imageView
     }
     
@@ -129,15 +159,24 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             // Original image to blureffect
             let blurEffect = UIBlurEffect(style: .light)
             let blurView = UIVisualEffectView(effect: blurEffect)
-            blurView.frame = capturedImageView.bounds
+            blurView.translatesAutoresizingMaskIntoConstraints = false
             capturedImageView.addSubview(blurView)
+            blurView.widthAnchor.constraint(equalTo: capturedImageView.widthAnchor).isActive = true
+            blurView.heightAnchor.constraint(equalTo: capturedImageView.heightAnchor).isActive = true
+            blurView.centerXAnchor.constraint(equalTo: capturedImageView.centerXAnchor).isActive = true
+            blurView.centerYAnchor.constraint(equalTo: capturedImageView.centerYAnchor).isActive = true
+
             
             // Crop guide Image
             croppedImageView = UIImageView(image: image!)
-            croppedImageView.center = CGPoint(x:capturedImageView.frame.width/2, y:capturedImageView.frame.height/2)
+            croppedImageView.translatesAutoresizingMaskIntoConstraints = false
+            capturedImageView.addSubview(croppedImageView)
+            croppedImageView.centerYAnchor.constraint(equalTo: referenceFrameImageView.centerYAnchor).isActive = true
+            croppedImageView.centerXAnchor.constraint(equalTo: referenceFrameImageView.centerXAnchor).isActive = true
+            croppedImageView.widthAnchor.constraint(equalTo: referenceFrameImageView.widthAnchor).isActive = true
+            croppedImageView.heightAnchor.constraint(equalTo: referenceFrameImageView.heightAnchor).isActive = true
             croppedImageView.frame = cropImageRect
             croppedImageView.roundCorners(cropImageRectCorner, radius: 10)
-            capturedImageView.addSubview(croppedImageView)
         }
     }
     
@@ -154,9 +193,11 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             print("Fail to convert pixel buffer")
             return
         }
-        
+
         let orgImage : UIImage = UIImage(data: imageData)!
         capturedImageView.image = orgImage
+        capturedImageView.backgroundColor = UIColor.red
+        capturedImageView.contentMode = .scaleAspectFill
         let originalSize: CGSize
         let visibleLayerFrame = cropImageRect
         
@@ -177,14 +218,12 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     }
     
     
-    //    func photoOutput(_ captureOutput: AVCapturePhotoOutput, didFinishProcessingPhoto photoSampleBuffer: CMSampleBuffer?, previewPhoto previewPhotoSampleBuffer: CMSampleBuffer?, resolvedSettings: AVCaptureResolvedPhotoSettings, bracketSettings: AVCaptureBracketedStillImageSettings?, error: Error?) {
-    //        if let photoSampleBuffer = photoSampleBuffer {
-    //            guard let imageData = AVCapturePhotoOutput.jpegPhotoDataRepresentation(forJPEGSampleBuffer: photoSampleBuffer, previewPhotoSampleBuffer: previewPhotoSampleBuffer)
-    //                else { return }
-    //
-    //
-    //        }
-    //    }
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        DispatchQueue.main.async {
+            self.videoPreviewLayer.frame = self.previewView.bounds
+            self.setRotation()
+        }
+    }
     
     // MARK: - @IBAction
     @IBAction func actionCameraCapture(_ sender: AnyObject) {
@@ -194,13 +233,16 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         
         photoSettings = AVCapturePhotoSettings.init(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         photoSettings.isAutoStillImageStabilizationEnabled = true
+        photoSettings.isHighResolutionPhotoEnabled = true
         photoSettings.flashMode = .auto
         
+    
         // AVCapturePhotoCaptureDelegate
         stillImageOutput.capturePhoto(with: photoSettings, delegate: self)
     }
     
     @IBAction func savePhotoPressed(_ sender: Any) {
+        
         UIImageWriteToSavedPhotosAlbum(croppedImageView.image!, self, #selector(image(_:didFinishSavingWithError:contextInfo:)), nil)
     }
     
@@ -225,5 +267,6 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         
         previewViewLayerMode(image: nil, isCameraMode: true)
     }
+    
 }
 
